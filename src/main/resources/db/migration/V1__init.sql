@@ -1,0 +1,105 @@
+/*
+** tear_down
+**
+** Remove all Session Cache objects
+*/
+
+DROP SCHEMA IF EXISTS DEMO_SCHEMA CASCADE;
+
+CREATE SCHEMA DEMO_SCHEMA;
+
+set schema 'demo_schema';
+
+---------------------
+
+---------------------
+
+CREATE TABLE T_USER (
+    ID INTEGER,
+    EMAIL VARCHAR(1000),
+    FIRST_NAME VARCHAR(100),
+    LAST_NAME VARCHAR(100),
+    PASSWORD VARCHAR(1000),
+    CONSTRAINT T_USER_PK PRIMARY KEY (ID)
+);
+
+CREATE TABLE T_TOKEN (
+    ID INTEGER,
+    USER_ID INTEGER,
+    TOKEN VARCHAR(100),
+    EXPIRY_TIMESTAMP TIMESTAMP,
+    FOREIGN KEY (USER_ID) REFERENCES T_USER(ID)
+);
+
+CREATE SEQUENCE SEQ_USER_ID START 1;
+
+CREATE SEQUENCE SEQ_TOKEN_ID START 1;
+
+CREATE INDEX IDX_USER ON T_USER (EMAIL);
+
+CREATE OR REPLACE FUNCTION SIGN_UP(
+    P_EMAIL VARCHAR,
+    P_FIRST_NAME VARCHAR,
+    P_LAST_NAME VARCHAR,
+    P_PASSWORD VARCHAR
+) RETURNS VARCHAR AS
+    $$      DECLARE V_USER_ID INTEGER;
+    V_COUNT INTEGER;
+BEGIN
+    SELECT
+        COUNT(1) INTO V_COUNT
+    FROM
+        T_USER
+    WHERE
+        EMAIL=P_EMAIL;
+    IF V_COUNT=0 THEN
+        INSERT INTO T_USER VALUES (
+            NEXTVAL('seq_user_id'),
+            P_EMAIL,
+            P_FIRST_NAME,
+            P_LAST_NAME,
+            P_PASSWORD
+        );
+        INSERT INTO T_TOKEN VALUES(
+            NEXTVAL('seq_token_id'),
+            CURRVAL('seq_user_id'),
+            NULL,
+            NULL
+        );
+    ELSE
+        RETURN 'E001';
+    END IF;
+
+    RETURN 'SUCCESS';
+END;
+
+$$ LANGUAGE PLPGSQL VOLATILE;
+CREATE OR REPLACE FUNCTION SIGN_IN( P_EMAIL VARCHAR, P_PASSWORD VARCHAR ) RETURNS VARCHAR AS
+    $$      DECLARE V_USER_ID INTEGER;
+    V_COUNT INTEGER;
+    V_TOKEN VARCHAR(100);
+BEGIN
+    SELECT
+        ID INTO V_USER_ID
+    FROM
+        T_USER
+    WHERE
+        EMAIL=P_EMAIL
+        AND PASSWORD = P_PASSWORD;
+    IF (V_USER_ID IS NULL) THEN
+        RETURN 'E002';
+    ELSE
+        V_TOKEN := GEN_RANDOM_UUID ();
+        UPDATE T_TOKEN
+        SET
+            TOKEN = V_TOKEN,
+            EXPIRY_TIMESTAMP=CURRENT_TIMESTAMP + (
+                10 * INTERVAL '1 minute'
+            )
+        WHERE
+            USER_ID=V_USER_ID;
+        RETURN V_TOKEN;
+    END IF;
+END;
+
+$$ LANGUAGE PLPGSQL VOLATILE;
